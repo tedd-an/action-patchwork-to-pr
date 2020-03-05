@@ -1,2 +1,2 @@
-# action-create-pull-request
-Create pull request and push to the upstream repo after processing the series from the patchwork.
+# action-patchwork-to-pr
+Create PR after reading the patch series from patchwork URL.

@@ -1,0 +1,32 @@
+# action.yml
+name: Patchwork to PR
+
+description: 'Create PR after reading the patch series from the Patchwork URL'
+
+inputs:
+  pw_url:
+    description: Patchwork URL to get patch series
+    required: true
+  pw_exclude_str:
+    description: String in title used to exclude in the list
+    required: true
+  base_branch:
+    description: Branch name where the PR is pushed
+    default: "master"
+  github_token:
+    description: Secret github token
+    required: true
+
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  env:
+    GITHUB_TOKEN: ${{ inputs.github_token }}
+  args:
+    - ${{ inputs.pw_url }}
+    - ${{ inputs.pw_exclude_str }}
+    - ${{ inputs.base_branch }}
+
+branding:
+  icon: 'bluetooth'
+  color: '#0082FC'
