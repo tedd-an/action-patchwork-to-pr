@@ -118,7 +118,7 @@ def get_dir_list(base_dir):
     base_abs_dir = os.path.join(os.path.curdir, base_dir)
 
     print("Dir List: %s" % base_abs_dir)
-    for item in os.listdir(base_abs_dir):
+    for item in sorted(os.listdir(base_abs_dir)):
         item_path = os.path.join(base_abs_dir, item)
         dir_list.append(os.path.abspath(item_path))
         print("   %s" % os.path.abspath(item_path))
