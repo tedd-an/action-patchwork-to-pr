@@ -11,7 +11,6 @@ import re
 from git import Repo
 
 PR_TITLE_PREFIX='PW_S_ID'
-WORKING_BRANCH = 'master'
 
 def requests_url(url):
     """ Helper function to requests GET with URL """
@@ -193,6 +192,9 @@ def create_pr_with_series(series_path, base_repo, base_branch):
     # Get current pr from the target repo
     pr_list = github_get_pr_list(base_repo)
 
+    # Check out the base branch
+    git_checkout(src_dir, base_branch)
+
     for series_path in series_path_list:
         print("\n>> Series Path: %s" % series_path)
 
@@ -226,7 +228,7 @@ def create_pr_with_series(series_path, base_repo, base_branch):
         # Apply patches
         if git_am(src_dir, patch_path_list) != 0:
             print("ERROR: Failed to apply patch.")
-            git_checkout(src_dir, WORKING_BRANCH)
+            git_checkout(src_dir, base_branch)
             # TODO: send email to the submitter and reqeust to send after rebase
             continue
 
@@ -234,7 +236,7 @@ def create_pr_with_series(series_path, base_repo, base_branch):
             git_push(src_dir, branch)
         except subprocess.CalledProcessError as e:
             print("ERROR: Failed to push %s error=%d " % (branch, e.returncode))
-            git_checkout(src_dir, WORKING_BRANCH)
+            git_checkout(src_dir, base_branch)
             continue
 
         # Prepare PR message if cover_letter exist
@@ -250,7 +252,7 @@ def create_pr_with_series(series_path, base_repo, base_branch):
             git_push(src_dir, branch, delete=True)
 
         # Check out to the target_branch
-        git_checkout(src_dir, WORKING_BRANCH)
+        git_checkout(src_dir, base_branch)
 
 def parse_args():
     """ Parse input argument """
