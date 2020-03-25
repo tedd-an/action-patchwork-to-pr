@@ -45,42 +45,48 @@ def check_call(cmd, env=None, cwd=None, shell=False):
 
     return subprocess.check_call(cmd, env=env, cwd=cwd, shell=shell, stderr=subprocess.STDOUT)
 
-def git_clone(repo, directory, branch=None):
-    cmd = ['git', 'clone']
-    if branch != None:
-        cmd.append('-b')
-        cmd.append(branch)
-    cmd.append(repo)
-    cmd.append(directory)
-    return check_call(cmd)
+def git(*args, cwd=None):
+    """ Run git command and return the return code. """
 
-def git_checkout(repo_dir, branch, create=False):
-    cmd = ['git', 'checkout']
-    if create:
-        cmd.append('-b')
-    cmd.append(branch)
-    return  check_call(cmd, cwd=repo_dir)
-
-def git_am(repo_dir, patches):
-    cmd = ['git', 'am']
-    for patch in patches:
-        cmd.append(patch)
+    cmd = ['git']
+    cmd.extend(args)
+    cmd_str = "{}".format(" ".join(str(w) for w in cmd))
+    logging.info("GIT Command: '%s'" % cmd_str)
 
     try:
-        ret = check_call(cmd, cwd=repo_dir)
-    except subprocess.CalledProcessError as e:
-        # roll back
-        cmd = ['git', 'am', '--abort']
-        check_call(cmd, cwd=repo_dir)
-        return e.returncode
-    return ret
+        proc = subprocess.Popen(cmd,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE,
+                                cwd=cwd)
+    except OSError as e:
+        print("ERROR: failed to run git cmd: '%s': %s" % (cmd_str, e))
+        return -1
 
-def git_push(repo_dir, branch, delete=False):
-    cmd = ['git', 'push', 'origin']
-    if delete:
-        cmd.append('--delete')
-    cmd.append(branch)
-    return check_call(cmd, cwd=repo_dir)
+    stdout, stderr = proc.communicate()
+    stdout = stdout.decode("utf-8")
+    stderr = stderr.decode("utf-8")
+    logging.debug(">> stdout")
+    logging.debug("{}".format(stdout))
+    logging.debug(">> stderr")
+    logging.debug("{}".format(stderr))
+
+    # Return error
+    if proc.returncode:
+        return proc.returncode
+    elif stderr:
+        return 1
+    else:
+        return 0
+
+def apply_patches(repo_dir, patches):
+    for patch in patches:
+        ret = git("am", patch, cwd=repo_dir) != 0
+        if ret != 0:
+            logging.warning("Failed to apply patch. Abort am")
+            git("am", "--abort", cwd=repo_dir)
+            return ret
+
+    return 0
 
 def hub_create_pr(repo_dir, pr_msg, base_repo, base_branch, branch):
     dest = '{}:{}'.format(base_repo.split("/")[0], base_branch)
@@ -196,7 +202,7 @@ def create_pr_with_series(series_path, base_repo, base_branch):
     pr_list = github_get_pr_list(base_repo)
 
     # Check out the base branch
-    git_checkout(src_dir, base_branch)
+    git("checkout", base_branch, cwd=src_dir)
 
     for series_path in series_path_list:
         logging.info("\n>> Series Path: %s" % series_path)
@@ -226,20 +232,20 @@ def create_pr_with_series(series_path, base_repo, base_branch):
             continue
 
         # create branch with series name
-        git_checkout(src_dir, branch, create=True)
+        git("checkout", "-b", branch, cwd=src_dir)
 
         # Apply patches
-        if git_am(src_dir, patch_path_list) != 0:
+        if apply_patches(src_dir, patch_path_list) != 0:
             logging.error("failed to apply patch.")
-            git_checkout(src_dir, base_branch)
+            git("checkout", base_branch, cwd=src_dir)
             # TODO: send email to the submitter and reqeust to send after rebase
             continue
 
         try:
-            git_push(src_dir, branch)
+            git("push", "origin", branch, cwd=src_dir)
         except subprocess.CalledProcessError as e:
             logging.error("failed to push %s error=%d " % (branch, e.returncode))
-            git_checkout(src_dir, base_branch)
+            git("checkout", base_branch, cwd=src_dir)
             continue
 
         # Prepare PR message if cover_letter exist
@@ -252,10 +258,10 @@ def create_pr_with_series(series_path, base_repo, base_branch):
             hub_create_pr(src_dir, pr_msg, base_repo, base_branch, branch)
         except subprocess.CalledProcessError as e:
             logging.error("failed to create pr error=%d" % e.returncode)
-            git_push(src_dir, branch, delete=True)
+            git("push", "origin", "--delete", branch, cwd=src_dir)
 
         # Check out to the target_branch
-        git_checkout(src_dir, base_branch)
+        git("checkout", base_branch, cwd=src_dir)
 
 def parse_args():
     """ Parse input argument """
