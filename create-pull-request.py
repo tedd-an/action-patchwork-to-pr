@@ -10,8 +10,11 @@ import time
 import re
 import logging
 from git import Repo
+from github import Github
 
 logger = None
+
+github_repo = None
 
 PR_TITLE_PREFIX='PW_S_ID'
 
@@ -22,28 +25,6 @@ def requests_url(url):
         raise requests.HTTPError("GET {}".format(resp.status_code))
 
     return resp
-
-def check_call(cmd, env=None, cwd=None, shell=False):
-    """ Run command with arguments.  Wait for command to complete.
-
-    Args:
-        cmd (str): command to run
-        env (obj:`dict`): environment variables for the new process
-        cwd (str): sets current directory before execution
-        shell (bool): if true, the command will be executed through the shell
-
-    Returns:
-        ret: Zero for success, otherwise raise CalledProcessError
-
-    """
-    logging.info("cmd: %s" % cmd)
-    if env:
-        logging.debug("env: %s" % env)
-
-    if shell:
-        cmd = subprocess.list2cmdline(cmd)
-
-    return subprocess.check_call(cmd, env=env, cwd=cwd, shell=shell, stderr=subprocess.STDOUT)
 
 def git(*args, cwd=None):
     """ Run git command and return the return code. """
@@ -88,11 +69,19 @@ def apply_patches(repo_dir, patches):
 
     return 0
 
-def hub_create_pr(repo_dir, pr_msg, base_repo, base_branch, branch):
-    dest = '{}:{}'.format(base_repo.split("/")[0], base_branch)
-    #cmd = ['hub', 'pull-request', '--push', '--base', dest, '-F', pr_msg]
-    cmd = ['hub', 'pull-request', '-b', dest, '-h', branch, '-F', pr_msg]
-    return check_call(cmd, cwd=repo_dir)
+def github_create_pr(pr_msg, base, head):
+
+    body = ""
+    with open(pr_msg, "r") as f:
+        title = f.readline()
+        for line in f:
+            body += line
+
+    logging.debug("Creating PR: {} <-- {}".format(base, head))
+    pr = github_repo.create_pull(title=title, body=body, base=base, head=head,
+                                 maintainer_can_modify=True)
+    logging.info("PR created: PR:{} URL:{}".format(pr.number, pr.url))
+
 
 def github_get_pr_list(base_repo):
     """
@@ -253,12 +242,7 @@ def create_pr_with_series(series_path, base_repo, base_branch):
 
         time.sleep(1)
 
-        # use hub to create pr
-        try:
-            hub_create_pr(src_dir, pr_msg, base_repo, base_branch, branch)
-        except subprocess.CalledProcessError as e:
-            logging.error("failed to create pr error=%d" % e.returncode)
-            git("push", "origin", "--delete", branch, cwd=src_dir)
+        github_create_pr(pr_msg, base_branch, branch)
 
         # Check out to the target_branch
         git("checkout", base_branch, cwd=src_dir)
@@ -298,10 +282,17 @@ def init_logging():
     logger.setLevel(logging.DEBUG)
     logging.info("Initialized the logger")
 
+def init_github(args):
+
+    global github_repo
+    github_repo = Github(os.environ['GITHUB_TOKEN']).get_repo(args.base_repo)
+
 def main():
     args = parse_args()
 
     init_logging()
+
+    init_github(args)
 
     create_pr_with_series(args.series_path,
                           args.base_repo,
