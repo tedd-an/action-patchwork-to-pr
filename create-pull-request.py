@@ -8,7 +8,10 @@ import subprocess
 import requests
 import time
 import re
+import logging
 from git import Repo
+
+logger = None
 
 PR_TITLE_PREFIX='PW_S_ID'
 
@@ -33,9 +36,9 @@ def check_call(cmd, env=None, cwd=None, shell=False):
         ret: Zero for success, otherwise raise CalledProcessError
 
     """
-    print("cmd: %s" % cmd)
+    logging.info("cmd: %s" % cmd)
     if env:
-        print("env: %s" % env)
+        logging.debug("env: %s" % env)
 
     if shell:
         cmd = subprocess.list2cmdline(cmd)
@@ -92,7 +95,7 @@ def github_get_pr_list(base_repo):
     """
 
     url='https://api.github.com/repos/{}/pulls'.format(base_repo)
-    print("URL: %s" % url)
+    logging.debug("URL: %s" % url)
 
     pr_list = []
 
@@ -102,10 +105,10 @@ def github_get_pr_list(base_repo):
 
         # Read next page
         if "next" not in resp.links:
-            print("Read all pull requests: Total = %d" % len(pr_list))
+            logging.debug("Read all pull requests: Total = %d" % len(pr_list))
             break
 
-        print("Read next list")
+        logging.debug("Read next list")
         url = resp.links["next"]["url"]
 
     return pr_list
@@ -116,11 +119,11 @@ def get_dir_list(base_dir):
 
     base_abs_dir = os.path.join(os.path.curdir, base_dir)
 
-    print("Dir List: %s" % base_abs_dir)
+    logging.debug("Dir List: %s" % base_abs_dir)
     for item in sorted(os.listdir(base_abs_dir)):
         item_path = os.path.join(base_abs_dir, item)
         dir_list.append(os.path.abspath(item_path))
-        print("   %s" % os.path.abspath(item_path))
+        logging.debug("   %s" % os.path.abspath(item_path))
 
     return dir_list
 
@@ -149,7 +152,7 @@ def generate_pr_msg(series, series_path, patch_path_list):
     patch_file = patch_path_list[0]
     if os.path.exists(os.path.join(series_path, "cover_letter")):
         patch_file = os.path.join(series_path, "cover_letter")
-    print("Patch File: %s" % patch_file)
+    logging.info("Patch File: %s" % patch_file)
 
     commit_msg = ""
     with open(patch_file, 'r') as pf:
@@ -157,15 +160,15 @@ def generate_pr_msg(series, series_path, patch_path_list):
         for line in pf:
             line = line.strip(" \t")
             if line == os.linesep and save_msg == False:
-                print("Commit message start - first space")
+                logging.debug("Commit message start - first space")
                 save_msg = True
                 continue
             if re.search("---", line):
-                print("Commit message end - \'---\'")
+                logging.debug("Commit message end - \'---\'")
                 break
 
             if save_msg == True:
-                print("   commit msg: %s" % line)
+                logging.debug("   commit msg: %s" % line)
                 commit_msg += line
 
     # Create pr_msg file
@@ -180,14 +183,14 @@ def generate_pr_msg(series, series_path, patch_path_list):
 def create_pr_with_series(series_path, base_repo, base_branch):
     """ Create pull request with the patches in the series """
 
-    print("ENV: HUB_PROTOCOL: %s" % os.environ["HUB_PROTOCOL"])
-    print("ENV: GITHUB_USER: %s" % os.environ["GITHUB_USER"])
-    print("ENV: GITHUB_TOKEN: %s" % os.environ["GITHUB_TOKEN"])
+    logging.debug("ENV: HUB_PROTOCOL: %s" % os.environ["HUB_PROTOCOL"])
+    logging.debug("ENV: GITHUB_USER: %s" % os.environ["GITHUB_USER"])
+    logging.debug("ENV: GITHUB_TOKEN: %s" % os.environ["GITHUB_TOKEN"])
 
     series_path_list = get_dir_list(series_path)
 
     src_dir = os.path.abspath(os.path.curdir)
-    print("Current Src Dir: %s" % src_dir)
+    logging.debug("Current Src Dir: %s" % src_dir)
 
     # Get current pr from the target repo
     pr_list = github_get_pr_list(base_repo)
@@ -196,30 +199,30 @@ def create_pr_with_series(series_path, base_repo, base_branch):
     git_checkout(src_dir, base_branch)
 
     for series_path in series_path_list:
-        print("\n>> Series Path: %s" % series_path)
+        logging.info("\n>> Series Path: %s" % series_path)
 
         # Read series json file
         json_file = os.path.join(series_path, "series.json")
         if not os.path.exists(json_file):
-            print("ERROR: cannot find series detail: %s" % json_file)
+            logging.error("cannot find series detail: %s" % json_file)
             continue
 
         # Load series detail from series.json file
         with open(json_file, 'r') as jf:
             series = json.load(jf)
-        print("Series id: %d" % series["id"])
+        logging.info("Series id: %d" % series["id"])
 
         branch = str(series["id"])
 
         # Check PR list if it already exist
         if search_series_in_pr_list(pr_list, series["id"]):
-            print("PR already exist. Skip creating PR")
+            logging.info("PR already exist. Skip creating PR")
             continue
 
         # Get list of patches from the pathces directory in series directory
         patch_path_list = get_dir_list(os.path.join(series_path, "patches"))
         if len(patch_path_list) == 0:
-            print("ERROR: no patch file found from %s" % series_path)
+            logging.error("no patch file found from %s" % series_path)
             continue
 
         # create branch with series name
@@ -227,7 +230,7 @@ def create_pr_with_series(series_path, base_repo, base_branch):
 
         # Apply patches
         if git_am(src_dir, patch_path_list) != 0:
-            print("ERROR: Failed to apply patch.")
+            logging.error("failed to apply patch.")
             git_checkout(src_dir, base_branch)
             # TODO: send email to the submitter and reqeust to send after rebase
             continue
@@ -235,7 +238,7 @@ def create_pr_with_series(series_path, base_repo, base_branch):
         try:
             git_push(src_dir, branch)
         except subprocess.CalledProcessError as e:
-            print("ERROR: Failed to push %s error=%d " % (branch, e.returncode))
+            logging.error("failed to push %s error=%d " % (branch, e.returncode))
             git_checkout(src_dir, base_branch)
             continue
 
@@ -248,7 +251,7 @@ def create_pr_with_series(series_path, base_repo, base_branch):
         try:
             hub_create_pr(src_dir, pr_msg, base_repo, base_branch, branch)
         except subprocess.CalledProcessError as e:
-            print("ERROR: failed to create pr error=%d" % e.returncode)
+            logging.error("failed to create pr error=%d" % e.returncode)
             git_push(src_dir, branch, delete=True)
 
         # Check out to the target_branch
@@ -275,8 +278,24 @@ def parse_args():
 
     return args
 
+def init_logging():
+    """ Initialize logger """
+
+    global logger
+
+    logger = logging.getLogger('')
+    ch = logging.StreamHandler()
+    formatter = logging.Formatter('%(levelname)-8s:%(funcName)s(%(lineno)d): %(message)s')
+    ch.setFormatter(formatter)
+
+    logger.addHandler(ch)
+    logger.setLevel(logging.DEBUG)
+    logging.info("Initialized the logger")
+
 def main():
     args = parse_args()
+
+    init_logging()
 
     create_pr_with_series(args.series_path,
                           args.base_repo,
