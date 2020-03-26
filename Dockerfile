@@ -1,6 +1,4 @@
-FROM fedora:latest
-
-RUN dnf -y update && dnf -y install git python3-pip && pip3 install requests gitpython pygithub
+FROM blueztestbot/bluez-build:latest
 
 COPY *.sh /
 COPY *.py /
