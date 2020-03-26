@@ -82,6 +82,20 @@ def github_create_pr(pr_msg, base, head):
                                  maintainer_can_modify=True)
     logging.info("PR created: PR:{} URL:{}".format(pr.number, pr.url))
 
+def github_close_pr(pr_num):
+    """
+    Delete PR and delete associated branch
+    """
+    pr = github_repo.get_pull(pr_num)
+    pr_head_ref = pr.head.ref
+    logging.debug("Closing PR({})".format(pr_num))
+
+    pr.edit(state="closed")
+    logging.debug("PR({}) is closed".format(pr_num))
+
+    git_ref = github_repo.get_git_ref("heads/{}".format(pr_head_ref))
+    git_ref.delete()
+    logging.debug("Branch({}) is removed".format(pr_head_ref))
 
 def github_get_pr_list(base_repo):
     """
@@ -132,6 +146,30 @@ def search_series_in_pr_list(pr_list, series_id):
         if re.search(prefix, pr["title"], re.IGNORECASE):
             return True
     return False
+
+def find_sid_in_series(sid, series_dir):
+    """
+    Search @sid from @series_dir and return True if the folder exist,
+    otherwise return False
+    """
+    for series in series_dir:
+        if re.search(sid, series):
+            logging.debug("Found s_id({}) in series dir".format(sid))
+            return True
+    logging.debug("Cannot find s_id({}) in series dir".format(sid))
+    return False
+
+def get_pw_sid(pr_title):
+    """
+    Parse PR title prefix and get PatchWork Series ID
+    PR Title Prefix = "[PW_S_ID:<series_id>] XXXXX"
+    """
+    try:
+        sid = re.search(r'^\[PW_S_ID:([0-9]+)\]', pr_title).group(1)
+    except AttributeError:
+        logging.error("Unable to find the series_id from title %s" % pr_title)
+        sid = None
+    return sid
 
 def generate_pr_msg(series, series_path, patch_path_list):
     """
@@ -246,6 +284,20 @@ def create_pr_with_series(series_path, base_repo, base_branch):
 
         # Check out to the target_branch
         git("checkout", base_branch, cwd=src_dir)
+
+    # Clean up PR if it doesn't exist in series
+    # Update PR list
+    pr_list = github_get_pr_list(base_repo)
+
+    for pr in pr_list:
+        pw_sid = get_pw_sid(pr["title"])
+        logging.debug("Checking PR({}): Series({})".format(pr["number"], pw_sid))
+        # search pw_sid from the series path
+        if not find_sid_in_series(pw_sid, series_path_list):
+            # PR is old and need to remove
+            logging.debug("No serires found. PR needs to be closed")
+            github_close_pr(pr["number"])
+            continue
 
 def parse_args():
     """ Parse input argument """
