@@ -176,12 +176,41 @@ def generate_pr_msg(series, series_path, patch_path_list):
     f.close()
     return pr_msg
 
-def create_pr_with_series(series_path, base_repo, base_branch):
+def read_series_json(series_path):
+    """ Read series' json file and return the json object """
+
+    json_file = os.path.join(series_path, "series.json")
+    if not os.path.exists(json_file):
+        logging.error("cannot find series detail: %s" % json_file)
+        return None
+
+    series = None
+
+    # Load series detail from series.json file
+    with open(json_file, 'r') as jf:
+        series = json.load(jf)
+    return series
+
+def clean_up_pr(series_path_list):
+    """ Clean up PR if it doesn't exist in series """
+    # Get PR list
+    pr_list = github_repo.get_pulls()
+
+    for pr in pr_list:
+        pw_sid = get_pw_sid(pr.title)
+        logging.debug("Checking PR({}): Series({})".format(pr.number, pw_sid))
+        # search pw_sid from the series path
+        if not find_sid_in_series(pw_sid, series_path_list):
+            # PR is old and need to remove
+            logging.debug("No serires found. PR needs to be closed")
+            github_close_pr(pr.number)
+            continue
+
+def manage_pull_request(series_path, base_repo, base_branch):
     """ Create pull request with the patches in the series """
 
     logging.debug("ENV: HUB_PROTOCOL: %s" % os.environ["HUB_PROTOCOL"])
     logging.debug("ENV: GITHUB_USER: %s" % os.environ["GITHUB_USER"])
-    logging.debug("ENV: GITHUB_TOKEN: %s" % os.environ["GITHUB_TOKEN"])
 
     series_path_list = get_dir_list(series_path)
 
@@ -198,16 +227,12 @@ def create_pr_with_series(series_path, base_repo, base_branch):
         logging.info("\n>> Series Path: %s" % series_path)
 
         # Read series json file
-        json_file = os.path.join(series_path, "series.json")
-        if not os.path.exists(json_file):
-            logging.error("cannot find series detail: %s" % json_file)
+        series = read_series_json(series_path)
+        if series == None:
+            logging.warning("Failed to read series json file")
             continue
 
-        # Load series detail from series.json file
-        with open(json_file, 'r') as jf:
-            series = json.load(jf)
         logging.info("Series id: %d" % series["id"])
-
         branch = str(series["id"])
 
         # Check if PR is already created
@@ -248,19 +273,7 @@ def create_pr_with_series(series_path, base_repo, base_branch):
         # Check out to the target_branch
         git("checkout", base_branch, cwd=src_dir)
 
-    # Clean up PR if it doesn't exist in series
-    # Update PR list
-    pr_list = github_repo.get_pulls()
-
-    for pr in pr_list:
-        pw_sid = get_pw_sid(pr.title)
-        logging.debug("Checking PR({}): Series({})".format(pr.number, pw_sid))
-        # search pw_sid from the series path
-        if not find_sid_in_series(pw_sid, series_path_list):
-            # PR is old and need to remove
-            logging.debug("No serires found. PR needs to be closed")
-            github_close_pr(pr.number)
-            continue
+    clean_up_pr(series_path_list)
 
 def parse_args():
     """ Parse input argument """
@@ -309,9 +322,7 @@ def main():
 
     init_github(args)
 
-    create_pr_with_series(args.series_path,
-                          args.base_repo,
-                          args.base_branch)
+    manage_pull_request(args.series_path, args.base_repo, args.base_branch)
 
 if __name__ == "__main__":
     main()
