@@ -3,12 +3,10 @@
 import os
 import json
 import argparse
-import shutil
 import subprocess
 import time
 import re
 import logging
-from git import Repo
 from github import Github
 
 logger = None
