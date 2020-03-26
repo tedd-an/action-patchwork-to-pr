@@ -5,7 +5,6 @@ import json
 import argparse
 import shutil
 import subprocess
-import requests
 import time
 import re
 import logging
@@ -17,14 +16,6 @@ logger = None
 github_repo = None
 
 PR_TITLE_PREFIX='PW_S_ID'
-
-def requests_url(url):
-    """ Helper function to requests GET with URL """
-    resp = requests.get(url)
-    if resp.status_code != 200:
-        raise requests.HTTPError("GET {}".format(resp.status_code))
-
-    return resp
 
 def git(*args, cwd=None):
     """ Run git command and return the return code. """
@@ -97,31 +88,6 @@ def github_close_pr(pr_num):
     git_ref.delete()
     logging.debug("Branch({}) is removed".format(pr_head_ref))
 
-def github_get_pr_list(base_repo):
-    """
-    Returns the list of opened pull request from the repo.
-    The list contains only the pull request pr_id, html_url, and title.
-    """
-
-    url='https://api.github.com/repos/{}/pulls'.format(base_repo)
-    logging.debug("URL: %s" % url)
-
-    pr_list = []
-
-    while True:
-        resp = requests_url(url)
-        pr_list = pr_list + resp.json()
-
-        # Read next page
-        if "next" not in resp.links:
-            logging.debug("Read all pull requests: Total = %d" % len(pr_list))
-            break
-
-        logging.debug("Read next list")
-        url = resp.links["next"]["url"]
-
-    return pr_list
-
 def get_dir_list(base_dir):
     """ Get the list of absolute path of directory """
     dir_list = []
@@ -143,7 +109,7 @@ def search_series_in_pr_list(pr_list, series_id):
     """
     prefix = '{}:{}'.format(PR_TITLE_PREFIX, series_id)
     for pr in pr_list:
-        if re.search(prefix, pr["title"], re.IGNORECASE):
+        if re.search(prefix, pr.title, re.IGNORECASE):
             return True
     return False
 
@@ -226,7 +192,7 @@ def create_pr_with_series(series_path, base_repo, base_branch):
     logging.debug("Current Src Dir: %s" % src_dir)
 
     # Get current pr from the target repo
-    pr_list = github_get_pr_list(base_repo)
+    pr_list = github_repo.get_pulls()
 
     # Check out the base branch
     git("checkout", base_branch, cwd=src_dir)
@@ -287,16 +253,16 @@ def create_pr_with_series(series_path, base_repo, base_branch):
 
     # Clean up PR if it doesn't exist in series
     # Update PR list
-    pr_list = github_get_pr_list(base_repo)
+    pr_list = github_repo.get_pulls()
 
     for pr in pr_list:
-        pw_sid = get_pw_sid(pr["title"])
-        logging.debug("Checking PR({}): Series({})".format(pr["number"], pw_sid))
+        pw_sid = get_pw_sid(pr.title)
+        logging.debug("Checking PR({}): Series({})".format(pr.number, pw_sid))
         # search pw_sid from the series path
         if not find_sid_in_series(pw_sid, series_path_list):
             # PR is old and need to remove
             logging.debug("No serires found. PR needs to be closed")
-            github_close_pr(pr["number"])
+            github_close_pr(pr.number)
             continue
 
 def parse_args():
