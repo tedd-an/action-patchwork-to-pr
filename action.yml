@@ -6,10 +6,10 @@ description: 'Create PR after reading the patch series from the Patchwork URL'
 inputs:
   pw_url:
     description: Patchwork URL to get patch series
-    required: true
+    default: "https://patchwork.kernel.org/api/1.1"
   pw_exclude_str:
     description: String in title used to exclude in the list
-    required: true
+    default: "Bluetooth"
   base_branch:
     description: Branch name where the PR is pushed
     default: "master"
