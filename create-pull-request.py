@@ -100,12 +100,11 @@ def get_dir_list(base_dir):
 
     return dir_list
 
-def search_series_in_pr_list(pr_list, series_id):
+def find_sid_in_prs(pr_list, sid):
     """
-    Return True if search series_id exists in pr_list.title.
-    PR shoud have PW_S_ID:series_id in title.
+    Return True if sid exists in title of PR in the format of [PW_S_ID:sid].
     """
-    prefix = '{}:{}'.format(PR_TITLE_PREFIX, series_id)
+    prefix = '{}:{}'.format(PR_TITLE_PREFIX, sid)
     for pr in pr_list:
         if re.search(prefix, pr.title, re.IGNORECASE):
             return True
@@ -211,8 +210,8 @@ def create_pr_with_series(series_path, base_repo, base_branch):
 
         branch = str(series["id"])
 
-        # Check PR list if it already exist
-        if search_series_in_pr_list(pr_list, series["id"]):
+        # Check if PR is already created
+        if find_sid_in_prs(pr_list, series["id"]):
             logging.info("PR already exist. Skip creating PR")
             continue
 
