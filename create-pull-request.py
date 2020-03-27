@@ -13,7 +13,7 @@ logger = None
 
 github_repo = None
 
-PR_TITLE_PREFIX='PW_S_ID'
+PR_TITLE_PREFIX='PW_SID'
 
 def git(*args, cwd=None):
     """ Run git command and return the return code. """
@@ -128,7 +128,7 @@ def get_pw_sid(pr_title):
     PR Title Prefix = "[PW_S_ID:<series_id>] XXXXX"
     """
     try:
-        sid = re.search(r'^\[PW_S_ID:([0-9]+)\]', pr_title).group(1)
+        sid = re.search(r'^\[PW_SID:([0-9]+)\]', pr_title).group(1)
     except AttributeError:
         logging.error("Unable to find the series_id from title %s" % pr_title)
         sid = None
