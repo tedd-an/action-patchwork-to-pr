@@ -160,6 +160,9 @@ def save_series(url, project_name, patch_state, dest_path, exclude_str=None,
         os.mkdir(save_path)
 
     for item in series:
+        if item["name"] == None:
+            item["name"] = "Untitled series of #{}".format(item["id"])
+
         print("Series Name: %s" % item["name"])
 
         if exclude_str != None:
