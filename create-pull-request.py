@@ -169,6 +169,8 @@ def apply_patches(repo_dir, series, patches):
             git("am", "--abort", cwd=repo_dir)
             logging.warning("Failed to apply patch. Notify and abort")
             notify_am_fail(repo_dir, patch, series, stdout, stderr)
+            output = "stdout:\n{}\nstderr:\n{}".format(stdout, stderr)
+            github_create_issue(series, output)
             return ret
 
     return 0
@@ -201,6 +203,27 @@ def github_close_pr(pr_num):
     git_ref.delete()
     logging.debug("Branch({}) is removed".format(pr_head_ref))
 
+def github_create_issue(series, output):
+    """
+    Create github issue for the series that cannot create the pr such as
+    git am fail.
+    The header is same as PR
+    """
+    title = '[{}:{}] {}'.format(PR_TITLE_PREFIX, series["id"], series["name"])
+    logging.debug("Creating ISSUE: title={}".format(title))
+    issue = github_repo.create_issue(title=title, body=output)
+    logging.info("Issue created: Num:{} URL:{}".format(issue.number, issue.url))
+
+def github_close_issue(issue_num):
+    """
+    Delete Issue from the github
+    """
+    issue = github_repo.get_issue(issue_num)
+    logging.debug("Closing Issue({})".format(issue_num))
+
+    issue.edit(state="closed")
+    logging.debug("Issue({}) is closed".format(issue_num))
+
 def get_dir_list(base_dir):
     """ Get the list of absolute path of directory """
     dir_list = []
@@ -222,6 +245,16 @@ def find_sid_in_prs(pr_list, sid):
     prefix = '{}:{}'.format(PR_TITLE_PREFIX, sid)
     for pr in pr_list:
         if re.search(prefix, pr.title, re.IGNORECASE):
+            return True
+    return False
+
+def find_sid_in_issues(issue_list, sid):
+    """
+    Return True if sid exists in title of Issue in the format of [PW_S_ID:sid].
+    """
+    prefix = '{}:{}'.format(PR_TITLE_PREFIX, sid)
+    for issue in issue_list:
+        if re.search(prefix, issue.title, re.IGNORECASE):
             return True
     return False
 
@@ -321,6 +354,22 @@ def clean_up_pr(series_path_list):
             github_close_pr(pr.number)
             continue
 
+def clean_up_issues(series_path_list):
+    """ Clena up Issues if it doens't exist in series """
+    # Get Issue list
+    issue_list = github_repo.get_issues()
+
+    for issue in issue_list:
+        pw_sid = get_pw_sid(issue.title)
+        logging.debug("Checking Issue({}): Series({})".format(issue.number,
+                                                              pw_sid))
+        # search pw_sid from the series path
+        if not find_sid_in_series(pw_sid, series_path_list):
+            # Issue is old and need to remove
+            logging.debug("No serires found. Issue can to be closed")
+            github_close_issue(issue.number)
+            continue
+
 def manage_pull_request(series_path, base_repo, base_branch):
     """ Create pull request with the patches in the series """
 
@@ -334,6 +383,9 @@ def manage_pull_request(series_path, base_repo, base_branch):
 
     # Get current pr from the target repo
     pr_list = github_repo.get_pulls()
+
+    # Get current issue from the target repo
+    issue_list = github_repo.get_issues()
 
     # Check out the base branch
     git("checkout", base_branch, cwd=src_dir)
@@ -353,6 +405,11 @@ def manage_pull_request(series_path, base_repo, base_branch):
         # Check if PR is already created
         if find_sid_in_prs(pr_list, series["id"]):
             logging.info("PR already exist. Skip creating PR")
+            continue
+
+        # Check if Issue is already created
+        if find_sid_in_issues(issue_list, series["id"]):
+            logging.info("Issue already exist. Skip further checking")
             continue
 
         # Get list of patches from the pathces directory in series directory
