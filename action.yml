@@ -16,12 +16,16 @@ inputs:
   github_token:
     description: Secret github token
     required: true
+  email_token:
+    description: Token for mailer
+    required: true
 
 runs:
   using: 'docker'
   image: 'Dockerfile'
   env:
     GITHUB_TOKEN: ${{ inputs.github_token }}
+    EMAIL_TOKEN: ${{ inputs.email_token }}
   args:
     - ${{ inputs.pw_url }}
     - ${{ inputs.pw_exclude_str }}

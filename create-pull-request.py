@@ -7,13 +7,42 @@ import subprocess
 import time
 import re
 import logging
+import smtplib
+import email.utils
 from github import Github
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 logger = None
 
 github_repo = None
 
 PR_TITLE_PREFIX='PW_SID'
+
+AM_FAIL_MSG = '''
+This is automated email and please do not reply to this email!!
+
+Dear submitter,
+
+Thanks for submitting the patches.
+However, we encountered an issue while applying your patches to
+the tip of the current master.
+
+Base:
+https://git.kernel.org/pub/scm/bluetooth/bluez.git/commit/?id={}
+
+Patch Info:
+URL: {}
+Title: {}
+
+Error message:
+{}
+
+
+---
+Regards,
+Linux Bluetooth Test Bot
+'''
 
 def git(*args, cwd=None):
     """ Run git command and return the return code. """
@@ -42,18 +71,104 @@ def git(*args, cwd=None):
 
     # Return error
     if proc.returncode:
-        return proc.returncode
+        return (proc.returncode, stdout, stderr)
     elif stderr:
-        return 1
+        return (1, stdout, stderr)
     else:
-        return 0
+        return (0, stdout, stderr)
 
-def apply_patches(repo_dir, patches):
+def send_email(sender, receiver, msg):
+    """ Send email """
+    if 'EMAIL_TOKEN' not in os.environ:
+        logging.warning("missing EMAIL_TOKEN. Skip sending email")
+        return
+    try:
+        session = smtplib.SMTP('smtp.gmail.com', 587)
+        session.ehlo()
+        session.starttls()
+        session.ehlo()
+        session.login(sender, os.environ['EMAIL_TOKEN'])
+        session.sendmail(sender, receiver, msg.as_string())
+    except Exception as e:
+        logging.error("Exception: {}".format(e))
+    finally:
+        session.quit()
+
+def find_patch_details(patch_file, series):
+    """ Find patch details from patch_file using name """
+
+    subject = None
+
+    # Find line with 'Subject: '
+    with open(patch_file, 'r') as pf:
+        for line in pf:
+            line = line.strip(" \t")
+            if re.search("Subject: ", line):
+                logging.debug("Found Subject line: {}".format(line))
+                # If there is no [ in the subject, just take it as is
+                if line.find("[") == -1:
+                    substr = re.search(r'^Subject: (.+)', line)
+                else:
+                    # Remove "Subject: [*] "
+                    substr = re.search(r'^Subject: \[.+\] (.+)', line)
+                if substr:
+                    subject = substr.group(1)
+                    break
+
+    if subject == None:
+        logging.warning("Cannot find the Subject line from the patch. Abort")
+        return None
+
+    # Search subject from the patch list in the series
+    patches = series['patches']
     for patch in patches:
-        ret = git("am", patch, cwd=repo_dir) != 0
+        if re.search(subject, patch['name']):
+            logging.debug("Found matching patch detail")
+            return patch
+
+    return None
+
+def notify_am_fail(repo_dir, patch_file, series, stdout, stderr):
+    """ Send git-am failure email """
+    sender = 'bluez.test.bot@gmail.com'
+
+    # TODO: For testing purpose, use temp email
+    receivers = 'tedd.an@intel.com'
+
+    patch = find_patch_details(patch_file, series)
+    if patch == None:
+        logging.error("Failed to get patch detail. skip sending email")
+
+    (ret, master_id, err) = git("rev-parse", "origin/master", cwd=repo_dir)
+    if ret !=0 :
+        logging.error("Failed to get the commit-id of master: {}".format(err))
+        return
+
+    # Generate message
+    msg = MIMEMultipart()
+    msg['From'] = sender
+    msg['To'] = receivers
+    msg['Subject'] = "RE: {}".format(patch['name'])
+    msg.add_header('In-Reply-To', patch['msgid'])
+    msg.add_header('References', patch['msgid'])
+
+    content = AM_FAIL_MSG.format(master_id,
+                                 patch['web_url'],
+                                 patch['name'],
+                                 stderr)
+    msg.attach(MIMEText(content, 'plain'))
+    logging.debug("Mail Message: {}".format(msg))
+
+    logging.info("Sending am fail email: msg: {}".format(patch['name']))
+    send_email(sender, receivers, msg)
+
+def apply_patches(repo_dir, series, patches):
+    for patch in patches:
+        (ret, stdout, stderr) = git("am", patch, cwd=repo_dir)
         if ret != 0:
-            logging.warning("Failed to apply patch. Abort am")
             git("am", "--abort", cwd=repo_dir)
+            logging.warning("Failed to apply patch. Notify and abort")
+            notify_am_fail(repo_dir, patch, series, stdout, stderr)
             return ret
 
     return 0
@@ -250,10 +365,9 @@ def manage_pull_request(series_path, base_repo, base_branch):
         git("checkout", "-b", branch, cwd=src_dir)
 
         # Apply patches
-        if apply_patches(src_dir, patch_path_list) != 0:
+        if apply_patches(src_dir, series, patch_path_list) != 0:
             logging.error("failed to apply patch.")
             git("checkout", base_branch, cwd=src_dir)
-            # TODO: send email to the submitter and reqeust to send after rebase
             continue
 
         try:
