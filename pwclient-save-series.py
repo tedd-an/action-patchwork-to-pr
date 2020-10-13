@@ -55,7 +55,7 @@ def pw_get_patches(project_id, state):
     patches = []
 
     # First URL
-    url = '{}/patches/?project={}&state={}'.format(PW_URL_API_BASE,
+    url = '{}/patches/?project={}&state={}&archived=0'.format(PW_URL_API_BASE,
                                                    project_id,
                                                    state)
 
