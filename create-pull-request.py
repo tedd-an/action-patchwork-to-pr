@@ -257,7 +257,10 @@ def manage_pull_request(series_path, base_repo, base_branch):
             continue
 
         try:
-            git("push", "origin", branch, cwd=src_dir)
+            if git("push", "origin", branch, cwd=src_dir) != 0:
+                logging.error("failed to push to remote branch")
+                git("checkout", base_branch, cwd=src_dir)
+                continue
         except subprocess.CalledProcessError as e:
             logging.error("failed to push %s error=%d " % (branch, e.returncode))
             git("checkout", base_branch, cwd=src_dir)
