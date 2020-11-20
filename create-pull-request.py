@@ -40,13 +40,8 @@ def git(*args, cwd=None):
     logging.debug(">> stderr")
     logging.debug("{}".format(stderr))
 
-    # Return error
-    if proc.returncode:
-        return proc.returncode
-    elif stderr:
-        return 1
-    else:
-        return 0
+    # No need to check the stderr and just rely on the return code
+    return proc.returncode
 
 def apply_patches(repo_dir, patches):
     for patch in patches:
